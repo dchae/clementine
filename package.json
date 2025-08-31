@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "mastra dev",
-    "build": "mastra build",
+    "build": "mastra build && tsc --build",
+    "build:cli": "tsc src/cli/cli.ts --outDir dist/cli --target ES2022 --module ES2022 --moduleResolution node --jsx react-jsx",
+    "lint": "tsc --noEmit",
     "start": "mastra start"
   },
   "keywords": [],
@@ -24,14 +26,18 @@
     "@mastra/memory": "^0.14.2",
     "dotenv": "^17.2.1",
     "iconv-lite": "^0.7.0",
+    "ink": "^4.1.0",
     "istextorbinary": "^9.5.0",
+    "meow": "^11.0.0",
     "mime-types": "^3.0.1",
+    "react": "^18.2.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@mastra/mcp-docs-server": "^0.13.16",
     "@types/mime-types": "^3.0.1",
     "@types/node": "^24.3.0",
+    "@types/react": "^18.2.0",
     "mastra": "^0.11.2",
     "typescript": "^5.9.2"
   }
