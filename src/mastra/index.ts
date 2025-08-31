@@ -2,11 +2,11 @@ import { Mastra } from "@mastra/core/mastra";
 import { PinoLogger } from "@mastra/loggers";
 import { LibSQLStore } from "@mastra/libsql";
 import { clementineAgent } from "./agents/clementine-agent";
-import { approvalWorkflow } from "./workflows";
+import { conversationWorkflow } from "./workflows";
 
 export const mastra = new Mastra({
-  workflows: { 
-    'tool-approval-workflow': approvalWorkflow,
+  workflows: {
+    "conversation-workflow": conversationWorkflow,
   },
   agents: { clementineAgent },
   storage: new LibSQLStore({
