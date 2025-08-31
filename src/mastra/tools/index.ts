@@ -1,3 +1,6 @@
 import { readFileTool } from "./readFileTool";
+import { requireApproval } from "../workflows";
 
-export default { readFileTool };
+export default {
+  readFileTool: requireApproval(readFileTool),
+};

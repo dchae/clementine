@@ -319,7 +319,7 @@ const readFileWithEncoding = async (filePath: string): Promise<string> => {
 const isBinaryFile = async (filePath: string): Promise<boolean> => {
   try {
     const buffer = await fs.readFile(filePath);
-    return isBinary(filePath, buffer);
+    return !!isBinary(filePath, buffer);
   } catch (error) {
     return false;
   }
