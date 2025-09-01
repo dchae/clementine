@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import Spinner from "ink-spinner";
 
 interface InputAreaProps {
   input: string;
@@ -17,7 +18,8 @@ export const InputArea = ({
     <>
       {isLoading && (
         <Box marginBottom={1}>
-          <Text color="yellow">Thinking...</Text>
+          <Spinner type="dots" />
+          <Text color="yellow"> Thinking...</Text>
         </Box>
       )}
 
