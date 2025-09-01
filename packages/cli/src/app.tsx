@@ -55,22 +55,13 @@ const App = ({ name = "User", verbose = false }: AppProps) => {
     handleApproval,
   } = useToolApproval();
 
-  const onApprovalSuccess = useCallback(
+  const onApprovalComplete = useCallback(
     (content: string) => {
-      log(`Tool approval succeeded, response: "${content}"`);
+      log(`Tool approval completed, response: "${content}"`);
       addAssistantMessage(content);
       setIsLoading(false);
     },
     [addAssistantMessage],
-  );
-
-  const onApprovalError = useCallback(
-    (error: string) => {
-      log(`Tool approval failed: ${error}`);
-      addMessage(createErrorMessage(error));
-      setIsLoading(false);
-    },
-    [addMessage],
   );
 
   const handleApprovalWrapper = useCallback(
@@ -83,23 +74,36 @@ const App = ({ name = "User", verbose = false }: AppProps) => {
         pendingToolCalls,
         conversationHistory,
         agent,
-        onApprovalSuccess,
-        onApprovalError,
+        onApprovalComplete,
+        onApprovalComplete, // Same callback for both success and error cases
       );
     },
-    [
-      handleApproval,
-      pendingToolCalls,
-      conversationHistory,
-      onApprovalSuccess,
-      onApprovalError,
-    ],
+    [handleApproval, pendingToolCalls, conversationHistory, onApprovalComplete],
   );
 
   const [inputUtilities, setInputUtilities] = useState<{
     getCurrentInput: () => string;
     clearInput: () => void;
   } | null>(null);
+
+  // Helper function to generate user-friendly messages for different tools
+  const getToolApprovalMessage = useCallback(
+    (toolName: string, args: any): string => {
+      switch (toolName) {
+        case "readFileTool":
+          return `Read file: ${args.absolutePath}`;
+        case "shellTool":
+          return `Execute command: ${args.command}${args.directory ? ` (in ${args.directory})` : ""}`;
+        case "editTool":
+          return args.old_string === ""
+            ? `Create new file: ${args.file_path}`
+            : `Edit file: ${args.file_path}`;
+        default:
+          return `Execute ${toolName} with args: ${JSON.stringify(args)}`;
+      }
+    },
+    [],
+  );
 
   const handleSubmit = useCallback(async () => {
     if (!inputUtilities) return;
@@ -121,15 +125,16 @@ const App = ({ name = "User", verbose = false }: AppProps) => {
       );
       let toolCallsToApprove: PendingToolCall[] = [];
 
-      const response = await agent.generate(currentInput, {
-        context: conversationHistory,
-        onStepFinish: async ({ toolCalls }) => {
-          if (toolCalls && toolCalls.length > 0) {
-            log(
-              `Agent requested ${toolCalls.length} tool calls: ${toolCalls.map((tc) => tc.toolName).join(", ")}`,
-            );
-            for (const toolCall of toolCalls) {
-              if (toolCall.toolName === "readFileTool") {
+      let response;
+      try {
+        response = await agent.generate(currentInput, {
+          context: conversationHistory,
+          onStepFinish: async ({ toolCalls }) => {
+            if (toolCalls && toolCalls.length > 0) {
+              log(
+                `Agent requested ${toolCalls.length} tool calls: ${toolCalls.map((tc) => tc.toolName).join(", ")}`,
+              );
+              for (const toolCall of toolCalls) {
                 log(
                   `Requesting approval for tool: ${toolCall.toolName} with args: ${JSON.stringify(toolCall.args)}`,
                 );
@@ -138,7 +143,10 @@ const App = ({ name = "User", verbose = false }: AppProps) => {
                 storePendingCallback(callId, async () => {
                   log(`Executing tool: ${toolCall.toolName}`);
                   const tool = tools[toolCall.toolName as keyof typeof tools];
-                  const result = await tool.execute({
+                  if (!tool) {
+                    throw new Error(`Tool '${toolCall.toolName}' not found`);
+                  }
+                  const result = await (tool as any).execute({
                     context: toolCall.args,
                     mastra,
                     runtimeContext,
@@ -150,24 +158,59 @@ const App = ({ name = "User", verbose = false }: AppProps) => {
                 const pendingCall: PendingToolCall = {
                   toolName: toolCall.toolName,
                   args: toolCall.args,
-                  message: `Read file: ${toolCall.args.absolutePath}`,
+                  message: getToolApprovalMessage(
+                    toolCall.toolName,
+                    toolCall.args,
+                  ),
                   callId,
                 };
 
                 addPendingToolCall(pendingCall);
                 toolCallsToApprove.push(pendingCall);
               }
-            }
 
-            if (toolCallsToApprove.length > 0) {
-              log(
-                `Waiting for user approval for ${toolCallsToApprove.length} tool calls`,
-              );
-              return; // Wait for approval
+              if (toolCallsToApprove.length > 0) {
+                log(
+                  `Waiting for user approval for ${toolCallsToApprove.length} tool calls`,
+                );
+                return; // Wait for approval
+              }
             }
-          }
-        },
-      });
+          },
+        });
+      } catch (error) {
+        // Tool validation error occurred during agent.generate()
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        log(
+          `Agent generation failed with tool validation error: ${errorMessage}`,
+        );
+
+        // Send error back to agent for correction
+        const errorPrompt = `Your previous tool call failed with this error: ${errorMessage}\n\nPlease retry the user's original request: "${currentInput}" by calling the tool again with corrected parameters.`;
+
+        try {
+          response = await agent.generate(errorPrompt, {
+            context: conversationHistory,
+          });
+          addAssistantMessage(
+            response.text || "Let me correct that and try again.",
+          );
+          setIsLoading(false);
+          return;
+        } catch (retryError) {
+          log(
+            `Failed to handle validation error: ${retryError instanceof Error ? retryError.message : "Unknown error"}`,
+          );
+          addMessage(
+            createErrorMessage(
+              "I encountered an error. Please try rephrasing your request.",
+            ),
+          );
+          setIsLoading(false);
+          return;
+        }
+      }
 
       if (toolCallsToApprove.length === 0) {
         log(`Agent response received: "${response.text}"`);

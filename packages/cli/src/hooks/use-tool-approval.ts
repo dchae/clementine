@@ -4,19 +4,24 @@ import { PendingToolCall, ConversationMessage } from "../types.js";
 const pendingCallbacks = new Map<string, () => Promise<any>>();
 
 export const useToolApproval = () => {
-  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
+  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>(
+    [],
+  );
   const currentInputRef = useRef("");
 
-  const storePendingCallback = useCallback((callId: string, callback: () => Promise<any>) => {
-    pendingCallbacks.set(callId, callback);
-  }, []);
+  const storePendingCallback = useCallback(
+    (callId: string, callback: () => Promise<any>) => {
+      pendingCallbacks.set(callId, callback);
+    },
+    [],
+  );
 
   const clearPendingToolCalls = useCallback(() => {
     setPendingToolCalls([]);
   }, []);
 
   const addPendingToolCall = useCallback((toolCall: PendingToolCall) => {
-    setPendingToolCalls(prev => [...prev, toolCall]);
+    setPendingToolCalls((prev) => [...prev, toolCall]);
   }, []);
 
   const handleApproval = useCallback(
@@ -26,7 +31,7 @@ export const useToolApproval = () => {
       conversationHistory: ConversationMessage[],
       agent: any,
       onSuccess: (content: string) => void,
-      onError: (error: string) => void
+      onError: (error: string) => void,
     ) => {
       if (currentPendingCalls.length === 0) return;
 
@@ -45,7 +50,8 @@ export const useToolApproval = () => {
                 pendingCallbacks.delete(toolCall.callId);
                 return {
                   toolName: toolCall.toolName,
-                  error: error instanceof Error ? error.message : "Unknown error",
+                  error:
+                    error instanceof Error ? error.message : "Unknown error",
                   success: false,
                 };
               }
@@ -59,19 +65,36 @@ export const useToolApproval = () => {
 
           const allResults = await Promise.all(toolPromises);
 
-          const failedTools = allResults.filter((result) => !result.success);
-          if (failedTools.length > 0) {
-            const errorMsg = `Tools failed: ${failedTools.map((t) => `${t.toolName} (${t.error})`).join(", ")}`;
-            onError(errorMsg);
-            return;
+          const successfulResults = allResults.filter(
+            (result) => result.success,
+          );
+          const failedResults = allResults.filter((result) => !result.success);
+
+          // Build context for agent including both successes and failures
+          let contextParts = [
+            `The user asked: "${currentInputRef.current.trim()}"`,
+          ];
+
+          if (successfulResults.length > 0) {
+            const successContext = successfulResults
+              .map(
+                (tr) =>
+                  `Tool ${tr.toolName} result: ${JSON.stringify(tr.result, null, 2)}`,
+              )
+              .join("\n");
+            contextParts.push(`Successful tool results:\n${successContext}`);
           }
 
-          const toolResults = allResults.filter((result) => result.success);
-          const toolResultsContext = toolResults
-            .map((tr) => `Tool ${tr.toolName} result: ${JSON.stringify(tr.result, null, 2)}`)
-            .join("\n");
+          if (failedResults.length > 0) {
+            const errorContext = failedResults
+              .map((tr) => `Tool ${tr.toolName} failed: ${tr.error}`)
+              .join("\n");
+            contextParts.push(`Tool errors:\n${errorContext}`);
+          }
 
-          const contextPrompt = `The user asked: "${currentInputRef.current.trim()}"\n\nTool results:\n${toolResultsContext}\n\nPlease provide a helpful response based on these results.`;
+          const contextPrompt =
+            contextParts.join("\n\n") +
+            "\n\nPlease provide a helpful response. If tools failed, try to help the user correct the issue or suggest alternatives.";
 
           const response = await agent.generate(contextPrompt, {
             context: conversationHistory,
@@ -79,17 +102,24 @@ export const useToolApproval = () => {
 
           onSuccess(response.text || "I've processed your request.");
         } else {
-          onSuccess("I understand. Let me know if there's another way I can help.");
+          onSuccess(
+            "I understand. Let me know if there's another way I can help.",
+          );
         }
 
-        currentPendingCalls.forEach((call) => pendingCallbacks.delete(call.callId));
+        currentPendingCalls.forEach((call) =>
+          pendingCallbacks.delete(call.callId),
+        );
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
         onError(errorMessage);
-        currentPendingCalls.forEach((call) => pendingCallbacks.delete(call.callId));
+        currentPendingCalls.forEach((call) =>
+          pendingCallbacks.delete(call.callId),
+        );
       }
     },
-    [clearPendingToolCalls]
+    [clearPendingToolCalls],
   );
 
   return {
@@ -101,3 +131,4 @@ export const useToolApproval = () => {
     handleApproval,
   };
 };
+
