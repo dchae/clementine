@@ -5,10 +5,10 @@ import { RuntimeContext } from "@mastra/core/di";
 
 import { mastra } from "@clementine/mastra";
 import { AppProps, PendingToolCall } from "./types.js";
-import { createErrorMessage } from "./utils/message-utils.js";
-import { useConversation } from "./hooks/use-conversation.js";
-import { useToolApproval } from "./hooks/use-tool-approval.js";
-import { useInputHandling } from "./hooks/use-input.js";
+import { createErrorMessage } from "./utils/messageUtils.js";
+import { useConversation } from "./hooks/useConversation.js";
+import { useToolApproval } from "./hooks/useToolApproval.js";
+import { useInputHandling } from "./hooks/useInput.js";
 import { Header } from "./components/Header.js";
 import { Messages } from "./components/Messages.js";
 import { ApprovalRequest } from "./components/ApprovalRequest.js";

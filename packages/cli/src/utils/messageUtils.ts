@@ -26,12 +26,13 @@ export const getMessagePrefix = (type: Message["type"]) => {
   }
 };
 
-export const createWelcomeMessage = (name: string): Message => ({
+export const createWelcomeMessage = (): Message => ({
   type: "assistant",
-  content: `Hello ${name}! I'm Clementine, your AI assistant. How can I help you today?`,
+  content: `Hello! I'm Clementine. How can I help you today?`,
 });
 
 export const createErrorMessage = (error: unknown): Message => ({
   type: "error",
   content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
 });
+

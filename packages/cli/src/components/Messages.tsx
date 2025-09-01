@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { Message } from "../types.js";
-import { getMessageColor, getMessagePrefix } from "../utils/message-utils.js";
+import { getMessageColor, getMessagePrefix } from "../utils/messageUtils.js";
 
 interface MessagesProps {
   messages: Message[];
@@ -15,12 +15,11 @@ export const Messages = ({ messages }: MessagesProps) => {
             <Text color={getMessageColor(message.type)} bold>
               {getMessagePrefix(message.type)}
             </Text>
-            <Text color={getMessageColor(message.type)}>
-              {message.content}
-            </Text>
+            <Text color={getMessageColor(message.type)}>{message.content}</Text>
           </Box>
         </Box>
       ))}
     </Box>
   );
 };
+
