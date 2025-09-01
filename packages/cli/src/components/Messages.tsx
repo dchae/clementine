@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { Message } from "../types.js";
+import Markdown from "./Markdown.js";
 import { getMessageColor, getMessagePrefix } from "../utils/messageUtils.js";
 
 interface MessagesProps {
@@ -14,9 +15,7 @@ export const Messages = ({ messages }: MessagesProps) => {
           <Box flexDirection="column">
             <Text color={getMessageColor(message.type)} bold>
               {getMessagePrefix(message.type)}
-            </Text>
-            <Text color={getMessageColor(message.type)}>
-              {message.content}
+              <Markdown>{message.content}</Markdown>
             </Text>
           </Box>
         </Box>

@@ -6,14 +6,18 @@ interface InputAreaProps {
   hasPendingToolCalls: boolean;
 }
 
-export const InputArea = ({ input, isLoading, hasPendingToolCalls }: InputAreaProps) => {
+export const InputArea = ({
+  input,
+  isLoading,
+  hasPendingToolCalls,
+}: InputAreaProps) => {
   if (hasPendingToolCalls) return null;
 
   return (
     <>
       {isLoading && (
         <Box marginBottom={1}>
-          <Text color="yellow">🤔 Thinking...</Text>
+          <Text color="yellow">Thinking...</Text>
         </Box>
       )}
 
@@ -25,3 +29,4 @@ export const InputArea = ({ input, isLoading, hasPendingToolCalls }: InputAreaPr
     </>
   );
 };
+

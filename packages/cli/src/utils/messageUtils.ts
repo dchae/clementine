@@ -20,7 +20,7 @@ export const getMessagePrefix = (type: Message["type"]) => {
     case "assistant":
       return "⏺ ";
     case "error":
-      return "❌ Error:";
+      return "❌ Error: ";
     default:
       return "";
   }
