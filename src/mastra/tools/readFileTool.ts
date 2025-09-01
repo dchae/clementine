@@ -70,7 +70,7 @@ export const readFileTool = createTool({
     fileType: z.string().optional(),
     fileSize: z.number().optional(),
   }),
-  execute: async ({ context, mastra }) => {
+  execute: async ({ context }) => {
     return await readFile(context.absolutePath, context.offset, context.limit);
   },
 });

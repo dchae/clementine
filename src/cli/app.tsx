@@ -1,27 +1,24 @@
 import { useState, useEffect, useCallback } from "react";
-import { Box, Text, useInput, useStdin, useStdout } from "ink";
+import { Box, Text, useInput, useStdin } from "ink";
 import "dotenv/config";
 import { mastra } from "../mastra";
 
 const agent = mastra.getAgent("clementineAgent");
-const tools = await agent.getTools();
 
 interface Message {
   type: "user" | "assistant" | "error";
   content: string;
 }
 
-type ConversationHistory = Array<Message>;
-type AwaitedTools<T> = T extends Promise<infer U> ? U : T;
-
-interface ApprovalRequest<T> {
-  toolCalls: Array<{
-    toolName: keyof AwaitedTools<T>;
-    args: Record<string, any>;
-  }>;
-  partialResponse: string;
-  context: any;
+interface PendingToolCall {
+  toolName: string;
+  args: Record<string, any>;
+  message: string;
+  callId: string;
 }
+
+// Store callbacks outside React state since they can't be serialized
+const pendingCallbacks = new Map<string, () => Promise<any>>();
 
 interface AppProps {
   name?: string;
@@ -31,13 +28,12 @@ const App = ({ name = "User" }: AppProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest<
-    typeof tools
-  > | null>(null);
+  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>(
+    [],
+  );
   const [conversationHistory, setConversationHistory] = useState<
-    ConversationHistory[]
+    Array<{ role: "user" | "assistant"; content: string }>
   >([]);
-  const [currentRun, setCurrentRun] = useState<any>(null);
   const { stdin, setRawMode } = useStdin();
 
   // Add welcome message on mount
@@ -51,66 +47,94 @@ const App = ({ name = "User" }: AppProps) => {
 
   const handleApproval = useCallback(
     async (approve: boolean) => {
-      if (!approvalRequest || !currentRun) return;
+      if (pendingToolCalls.length === 0) return;
 
       try {
-        let result;
-
         if (approve) {
-          result = await currentRun.resume({
-            step: "parse-approval-response",
-            resumeData: { approved: true },
-          });
-        } else {
-          result = await currentRun.resume({
-            step: "parse-approval-response",
-            resumeData: { approved: false },
-          });
-        }
+          // Execute all approved tools
+          const toolResults = [];
+          for (const toolCall of pendingToolCalls) {
+            try {
+              const callback = pendingCallbacks.get(toolCall.callId);
+              if (callback) {
+                const result = await callback();
+                toolResults.push({ toolName: toolCall.toolName, result });
+                pendingCallbacks.delete(toolCall.callId); // Cleanup
+              }
+            } catch (error) {
+              const errorMsg = `Tool ${toolCall.toolName} failed: ${
+                error instanceof Error ? error.message : "Unknown error"
+              }`;
+              setMessages((prev) => [
+                ...prev,
+                { type: "error", content: errorMsg },
+              ]);
+              setPendingToolCalls([]);
+              setIsLoading(false);
+              return;
+            }
+          }
 
-        // Clear the approval request
-        setApprovalRequest(null);
+          // Now call the agent again with the tool results
+          const toolResultsContext = toolResults
+            .map(
+              (tr) =>
+                `Tool ${tr.toolName} result: ${JSON.stringify(tr.result, null, 2)}`,
+            )
+            .join("\n");
 
-        // Handle the workflow result
-        if (result.status === "success" && result.result?.response) {
+          const contextPrompt = `The user asked: "${input.trim()}"\n\nTool results:\n${toolResultsContext}\n\nPlease provide a helpful response based on these results.`;
+
+          const response = await agent.generate(contextPrompt, {
+            context: conversationHistory,
+          });
+
           const assistantMessage: Message = {
             type: "assistant",
-            content: result.result.response,
+            content: response.text || "I've processed your request.",
           };
 
           setMessages((prev) => [...prev, assistantMessage]);
           setConversationHistory((prev) => [
             ...prev,
-            { role: "assistant", content: result.result.response },
+            { role: "assistant", content: response.text || "" },
           ]);
-        } else if (result.status === "failed") {
-          const errorMessage: Message = {
-            type: "error",
-            content: `Error: ${result.error || "Workflow execution failed"}`,
+        } else {
+          // User rejected
+          const rejectionMessage: Message = {
+            type: "assistant",
+            content:
+              "I understand. Let me know if there's another way I can help.",
           };
-
-          setMessages((prev) => [...prev, errorMessage]);
+          setMessages((prev) => [...prev, rejectionMessage]);
         }
 
-        setCurrentRun(null);
+        // Cleanup callbacks
+        pendingToolCalls.forEach((call) =>
+          pendingCallbacks.delete(call.callId),
+        );
+        setPendingToolCalls([]);
       } catch (error) {
-        console.error("Failed to resume workflow:", error);
         const errorMessage: Message = {
           type: "error",
-          content: `Failed to process approval: ${error instanceof Error ? error.message : "Unknown error"}`,
+          content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         };
         setMessages((prev) => [...prev, errorMessage]);
-        setApprovalRequest(null);
-        setCurrentRun(null);
+
+        // Cleanup callbacks on error too
+        pendingToolCalls.forEach((call) =>
+          pendingCallbacks.delete(call.callId),
+        );
+        setPendingToolCalls([]);
       }
 
       setIsLoading(false);
     },
-    [approvalRequest, currentRun],
+    [pendingToolCalls, conversationHistory, input],
   );
 
   const handleSubmit = useCallback(async () => {
-    if (!input.trim() || isLoading || approvalRequest) return;
+    if (!input.trim() || isLoading || pendingToolCalls.length > 0) return;
 
     const userMessage: Message = {
       type: "user",
@@ -122,81 +146,78 @@ const App = ({ name = "User" }: AppProps) => {
       ...prev,
       { role: "user", content: input.trim() },
     ]);
+
+    const currentInput = input.trim();
     setInput("");
     setIsLoading(true);
 
     try {
-      // Get the conversation workflow
-      const workflow = mastra.getWorkflow("conversationWorkflow");
-      const run = await workflow.createRunAsync();
-      setCurrentRun(run);
+      const tools = await agent.getTools();
+      let toolCallsToApprove: PendingToolCall[] = [];
 
-      // Start the workflow
-      const result = await run.start({
-        inputData: {
-          userInput: input.trim(),
-          conversationHistory,
+      const response = await agent.generate(currentInput, {
+        context: conversationHistory,
+        onStepFinish: async ({ toolCalls, text }) => {
+          if (toolCalls && toolCalls.length > 0) {
+            // For readFileTool, always require approval (for now)
+            for (const toolCall of toolCalls) {
+              if (toolCall.toolName === "readFileTool") {
+                const callId = `${toolCall.toolName}-${Date.now()}-${Math.random()}`;
+
+                // Store the tool execution function (capture toolCall in closure)
+                pendingCallbacks.set(callId, async () => {
+                  const tool = tools[toolCall.toolName];
+                  return await tool.execute({
+                    context: toolCall.args,
+                    mastra,
+                  });
+                });
+
+                toolCallsToApprove.push({
+                  toolName: toolCall.toolName,
+                  args: toolCall.args,
+                  message: `Read file: ${toolCall.args.absolutePath}`,
+                  callId,
+                });
+              }
+            }
+
+            if (toolCallsToApprove.length > 0) {
+              setPendingToolCalls(toolCallsToApprove);
+              return; // Don't continue - wait for approval
+            }
+          }
         },
       });
 
-      if (result.status === "suspended") {
-        // Extract approval details from suspension
-        console.log(result);
-        const suspendedStep = result.steps?.conversation;
-        if (suspendedStep?.suspendPayload) {
-          const { toolCalls, partialResponse, context } =
-            suspendedStep.suspendPayload;
-
-          setApprovalRequest({
-            toolCalls,
-            partialResponse: partialResponse || "",
-            context,
-          });
-
-          // Don't set loading to false yet - we're waiting for approval
-          return;
-        }
-      }
-
-      // Handle successful completion without tool approval needed
-      if (result.status === "success" && result.result?.response) {
+      // If no approval needed, show response directly
+      if (toolCallsToApprove.length === 0) {
         const assistantMessage: Message = {
           type: "assistant",
-          content: result.result.response,
+          content:
+            response.text || "I'm sorry, I couldn't generate a response.",
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
         setConversationHistory((prev) => [
           ...prev,
-          { role: "assistant", content: result.result.response },
+          { role: "assistant", content: response.text || "" },
         ]);
-      } else if (result.status === "failed") {
-        // Handle failure
-        const errorMessage: Message = {
-          type: "error",
-          content: `Error: ${result.error || "Workflow execution failed"}`,
-        };
-
-        setMessages((prev) => [...prev, errorMessage]);
+        setIsLoading(false);
       }
-
-      setCurrentRun(null);
     } catch (error) {
       const errorMessage: Message = {
         type: "error",
-        content: `Error: ${error instanceof Error ? error.message : "Unknown error occurred"}`,
+        content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
       };
-
       setMessages((prev) => [...prev, errorMessage]);
-      setCurrentRun(null);
-    } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, conversationHistory, approvalRequest]);
+  }, [input, isLoading, conversationHistory, pendingToolCalls]);
 
   // Handle keyboard input
   useInput((input, key) => {
-    if (approvalRequest) {
+    if (pendingToolCalls.length > 0) {
       if (key.return || input.toLowerCase() === "y") {
         handleApproval(true);
       } else if (key.escape || input.toLowerCase() === "n") {
@@ -217,7 +238,7 @@ const App = ({ name = "User" }: AppProps) => {
     }
   });
 
-  // Enable raw mode to handle Ctrl+C
+  // Enable raw mode
   useEffect(() => {
     if (stdin) {
       setRawMode(true);
@@ -267,7 +288,7 @@ const App = ({ name = "User" }: AppProps) => {
       {/* Messages */}
       <Box flexDirection="column" marginBottom={1}>
         {messages.map((message, index) => (
-          <Box key={`${index}`} marginBottom={1}>
+          <Box key={index} marginBottom={1}>
             <Box flexDirection="column">
               <Text color={getMessageColor(message.type)} bold>
                 {getMessagePrefix(message.type)}
@@ -281,14 +302,14 @@ const App = ({ name = "User" }: AppProps) => {
       </Box>
 
       {/* Loading indicator */}
-      {isLoading && !approvalRequest && (
+      {isLoading && pendingToolCalls.length === 0 && (
         <Box marginBottom={1}>
           <Text color="yellow">🤔 Thinking...</Text>
         </Box>
       )}
 
       {/* Approval request */}
-      {approvalRequest && (
+      {pendingToolCalls.length > 0 && (
         <Box
           flexDirection="column"
           borderStyle="round"
@@ -300,37 +321,27 @@ const App = ({ name = "User" }: AppProps) => {
             🔐 Tool Execution Approval Required
           </Text>
 
-          {/* Show partial response if available */}
-          {approvalRequest.partialResponse && (
-            <Box marginTop={1} marginBottom={1}>
-              <Text color="gray">
-                Response: {approvalRequest.partialResponse}
-              </Text>
-            </Box>
-          )}
-
-          {/* List all tools that need approval */}
+          {/* List tools that need approval */}
           <Box marginTop={1} marginBottom={1} flexDirection="column">
             <Text color="cyan" bold>
               Tools to execute:
             </Text>
-            {approvalRequest.toolCalls.map((toolCall, index) => (
+            {pendingToolCalls.map((toolCall, index) => (
               <Box key={index} marginLeft={2}>
-                <Text color="cyan">• {toolCall.toolName}</Text>
-                <Text color="gray"> - {JSON.stringify(toolCall.args)}</Text>
+                <Text color="cyan">• {toolCall.message}</Text>
               </Box>
             ))}
           </Box>
 
           <Box>
-            <Text color="green">Press Y/Enter to approve all tools, </Text>
+            <Text color="green">Press Y/Enter to approve, </Text>
             <Text color="red">N/Esc to reject</Text>
           </Box>
         </Box>
       )}
 
       {/* Input area - only show if no approval request */}
-      {!approvalRequest && (
+      {pendingToolCalls.length === 0 && (
         <Box>
           <Text color="gray">{"> "}</Text>
           <Text>{input}</Text>
@@ -341,7 +352,7 @@ const App = ({ name = "User" }: AppProps) => {
       {/* Help text */}
       <Box marginTop={1}>
         <Text color="gray" dimColor>
-          {approvalRequest
+          {pendingToolCalls.length > 0
             ? "Waiting for approval decision..."
             : "Type your message and press Enter to send. Press Ctrl+C to exit."}
         </Text>
