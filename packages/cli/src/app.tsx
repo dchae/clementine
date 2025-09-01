@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { Box } from "ink";
 import "dotenv/config";
 import { RuntimeContext } from "@mastra/core/di";
+
 import { mastra } from "@clementine/mastra";
 import { AppProps, PendingToolCall } from "./types.js";
 import { createErrorMessage } from "./utils/message-utils.js";

@@ -12,6 +12,6 @@
     "outDir": "dist",
     "declaration": true
   },
-  "include": ["src/**/*"],
+  "include": ["mastra/**/*"],
   "exclude": ["node_modules", "dist"]
 }

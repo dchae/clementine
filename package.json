@@ -6,12 +6,13 @@
     "clementine": "./packages/cli/dist/cli.js"
   },
   "workspaces": [
-    "packages/*"
+    "packages/cli",
+    "packages/core"
   ],
   "scripts": {
-    "build": "pnpm -r run build && npm link",
+    "build": "npm run build --workspaces && npm link --force",
     "dev": "mastra dev",
-    "lint": "pnpm -r run lint",
+    "lint": "npm run lint --workspaces",
     "start": "mastra start"
   },
   "keywords": [],
