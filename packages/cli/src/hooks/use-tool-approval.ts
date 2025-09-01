@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { PendingToolCall, ConversationMessage } from "../types";
+import { PendingToolCall, ConversationMessage } from "../types.js";
 
 const pendingCallbacks = new Map<string, () => Promise<any>>();
 

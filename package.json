@@ -2,18 +2,16 @@
   "name": "clementine",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "bin": {
-    "clementine": "./dist/cli/cli.js"
+    "clementine": "./packages/cli/dist/cli.js"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "pnpm -r run build && npm link",
     "dev": "mastra dev",
-    "build": "npm run build:mastra && npm run build:cli && npm run link:cli",
-    "build:mastra": "mastra build",
-    "build:cli": "tsc --project tsconfig.cli.json && chmod +x ./dist/cli/cli.js",
-    "link:cli": "npm link",
-    "lint": "tsc --noEmit",
+    "lint": "pnpm -r run lint",
     "start": "mastra start"
   },
   "keywords": [],

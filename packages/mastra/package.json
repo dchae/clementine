@@ -1,0 +1,28 @@
+{
+  "name": "@clementine/mastra",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@mastra/core": "^0.15.2",
+    "@mastra/libsql": "^0.13.7",
+    "@mastra/loggers": "^0.10.9",
+    "@mastra/memory": "^0.14.2",
+    "dotenv": "^17.2.1",
+    "iconv-lite": "^0.7.0",
+    "istextorbinary": "^9.5.0",
+    "mime-types": "^3.0.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
+}
+

@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
-import { Message } from "../types";
-import { getMessageColor, getMessagePrefix } from "../utils/message-utils";
+import { Message } from "../types.js";
+import { getMessageColor, getMessagePrefix } from "../utils/message-utils.js";
 
 interface MessagesProps {
   messages: Message[];

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Message, ConversationMessage } from "../types";
-import { createWelcomeMessage } from "../utils/message-utils";
+import { Message, ConversationMessage } from "../types.js";
+import { createWelcomeMessage } from "../utils/message-utils.js";
 
 export const useConversation = (userName: string) => {
   const [messages, setMessages] = useState<Message[]>([]);

@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { PendingToolCall } from "../types";
+import { PendingToolCall } from "../types.js";
 
 interface ApprovalRequestProps {
   pendingToolCalls: PendingToolCall[];
