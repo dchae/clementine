@@ -15,11 +15,12 @@ export const Messages = ({ messages }: MessagesProps) => {
             <Text color={getMessageColor(message.type)} bold>
               {getMessagePrefix(message.type)}
             </Text>
-            <Text color={getMessageColor(message.type)}>{message.content}</Text>
+            <Text color={getMessageColor(message.type)}>
+              {message.content}
+            </Text>
           </Box>
         </Box>
       ))}
     </Box>
   );
 };
-

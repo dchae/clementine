@@ -34,6 +34,7 @@ export const clementineAgent = new Agent({
       - Explain your reasoning when making significant architectural decisions
       - Suggest improvements and best practices when appropriate
       - Handle errors gracefully and learn from them to improve subsequent attempts
+      - Responses should be formatted in markdown
 
       Remember: You're not just answering questions, you're actively collaborating to build software. Be confident, thorough, and helpful.
 `,

@@ -3,22 +3,22 @@ import { Message } from "../types.js";
 export const getMessageColor = (type: Message["type"]) => {
   switch (type) {
     case "user":
-      return "blue";
+      return "gray";
     case "assistant":
-      return "green";
+      return "white";
     case "error":
       return "red";
     default:
-      return "white";
+      return "blue";
   }
 };
 
 export const getMessagePrefix = (type: Message["type"]) => {
   switch (type) {
     case "user":
-      return "You:";
+      return "> ";
     case "assistant":
-      return "Clementine:";
+      return "⏺ ";
     case "error":
       return "❌ Error:";
     default:
@@ -35,4 +35,3 @@ export const createErrorMessage = (error: unknown): Message => ({
   type: "error",
   content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
 });
-
