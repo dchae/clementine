@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import React from "react";
 import { render } from "ink";
 import meow from "meow";
 import App from "./app.js";
@@ -10,21 +9,32 @@ const cli = meow(
 		  $ clementine
 
 		Options
-			--name  Your name
+			--verbose, -v  Show detailed output
+			--help  Show help
 
 		Examples
-		  $ clementine --name=Jane
-		  Hello, Jane
+		  $ clementine --verbose
 	`,
   {
     importMeta: import.meta,
     flags: {
-      name: {
-        type: "string",
-        shortFlag: "n",
+      verbose: {
+        type: "boolean",
+        shortFlag: "v",
+        default: false,
+      },
+      help: {
+        type: "boolean",
+        shortFlag: "h",
       },
     },
   },
 );
 
-render(<App name={cli.flags.name} />);
+// Handle help flag
+if (cli.flags.help) {
+  cli.showHelp();
+  process.exit(0);
+}
+
+render(<App verbose={cli.flags.verbose} />);

@@ -3,11 +3,16 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": {
+    "clementine": "./dist/cli/cli.js"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "mastra dev",
-    "build": "mastra build && tsc --build",
-    "build:cli": "tsc src/cli/cli.ts --outDir dist/cli --target ES2022 --module ES2022 --moduleResolution node --jsx react-jsx",
+    "build": "npm run build:mastra && npm run build:cli && npm run link:cli",
+    "build:mastra": "mastra build",
+    "build:cli": "tsc --project tsconfig.cli.json && chmod +x ./dist/cli/cli.js",
+    "link:cli": "npm link",
     "lint": "tsc --noEmit",
     "start": "mastra start"
   },

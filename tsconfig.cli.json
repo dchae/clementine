@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "allowImportingTsExtensions": false
+  },
+  "include": ["src/cli/**/*", "src/types/**/*", "src/mastra/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

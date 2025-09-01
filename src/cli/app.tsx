@@ -1,412 +1,225 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Box, Text, useInput, useStdin } from "ink";
+import { useState, useCallback, useEffect } from "react";
+import { Box } from "ink";
 import "dotenv/config";
+import { RuntimeContext } from "@mastra/core/di";
 import { mastra } from "../mastra";
+import { AppProps, PendingToolCall } from "./types";
+import { createErrorMessage } from "./utils/message-utils";
+import { useConversation } from "./hooks/use-conversation";
+import { useToolApproval } from "./hooks/use-tool-approval";
+import { useInputHandling } from "./hooks/use-input";
+import { Header } from "./components/Header";
+import { Messages } from "./components/Messages";
+import { ApprovalRequest } from "./components/ApprovalRequest";
+import { InputArea } from "./components/InputArea";
+import { HelpText } from "./components/HelpText";
+import { DebugPanel } from "./components/DebugPanel";
 
 const agent = mastra.getAgent("clementineAgent");
+const runtimeContext = new RuntimeContext();
 
-interface Message {
-  type: "user" | "assistant" | "error";
-  content: string;
-}
-
-interface PendingToolCall {
-  toolName: string;
-  args: Record<string, any>;
-  message: string;
-  callId: string;
-}
-
-// Store callbacks outside React state since they can't be serialized
-const pendingCallbacks = new Map<string, () => Promise<any>>();
-
-interface AppProps {
-  name?: string;
-}
-
-const App = ({ name = "User" }: AppProps) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
+const App = ({ name = "User", verbose = false }: AppProps) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>(
-    [],
-  );
-  const [conversationHistory, setConversationHistory] = useState<
-    Array<{ role: "user" | "assistant"; content: string }>
-  >([]);
-  const { stdin, setRawMode } = useStdin();
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
-  // Use refs to avoid dependency issues
-  const conversationHistoryRef = useRef(conversationHistory);
-  const currentInputRef = useRef("");
-  const pendingToolCallsRef = useRef(pendingToolCalls);
-  const isLoadingRef = useRef(isLoading);
-
-  // Keep refs in sync with state
-  useEffect(() => {
-    conversationHistoryRef.current = conversationHistory;
-  }, [conversationHistory]);
-
-  useEffect(() => {
-    currentInputRef.current = input;
-  }, [input]);
-
-  useEffect(() => {
-    pendingToolCallsRef.current = pendingToolCalls;
-  }, [pendingToolCalls]);
-
-  useEffect(() => {
-    isLoadingRef.current = isLoading;
-  }, [isLoading]);
-
-  // Add welcome message on mount
-  useEffect(() => {
-    const welcomeMessage: Message = {
-      type: "assistant",
-      content: `Hello ${name}! I'm Clementine, your AI assistant. How can I help you today?`,
-    };
-    setMessages([welcomeMessage]);
-  }, [name]);
-
-  const handleApproval = useCallback(
-    async (approve: boolean, currentPendingCalls: PendingToolCall[]) => {
-      if (currentPendingCalls.length === 0) return;
-
-      // Clear the approval UI immediately
-      setPendingToolCalls([]);
-
-      try {
-        if (approve) {
-          // Execute all approved tools in parallel
-          const toolPromises = currentPendingCalls.map(async (toolCall) => {
-            const callback = pendingCallbacks.get(toolCall.callId);
-            if (callback) {
-              try {
-                const result = await callback();
-                pendingCallbacks.delete(toolCall.callId); // Cleanup
-                return { toolName: toolCall.toolName, result, success: true };
-              } catch (error) {
-                pendingCallbacks.delete(toolCall.callId); // Cleanup
-                return {
-                  toolName: toolCall.toolName,
-                  error:
-                    error instanceof Error ? error.message : "Unknown error",
-                  success: false,
-                };
-              }
-            }
-            return {
-              toolName: toolCall.toolName,
-              error: "No callback found",
-              success: false,
-            };
-          });
-
-          const allResults = await Promise.all(toolPromises);
-
-          // Check for any failures
-          const failedTools = allResults.filter((result) => !result.success);
-          if (failedTools.length > 0) {
-            const errorMsg = `Tools failed: ${failedTools.map((t) => `${t.toolName} (${t.error})`).join(", ")}`;
-            setMessages((prev) => [
-              ...prev,
-              { type: "error", content: errorMsg },
-            ]);
-            setIsLoading(false);
-            return;
-          }
-
-          // Filter to only successful results for context
-          const toolResults = allResults.filter((result) => result.success);
-
-          // Now call the agent again with the tool results
-          const toolResultsContext = toolResults
-            .map(
-              (tr) =>
-                `Tool ${tr.toolName} result: ${JSON.stringify(tr.result, null, 2)}`,
-            )
-            .join("\n");
-
-          const contextPrompt = `The user asked: "${currentInputRef.current.trim()}"\n\nTool results:\n${toolResultsContext}\n\nPlease provide a helpful response based on these results.`;
-
-          const response = await agent.generate(contextPrompt, {
-            context: conversationHistoryRef.current,
-          });
-
-          const assistantMessage: Message = {
-            type: "assistant",
-            content: response.text || "I've processed your request.",
-          };
-
-          setMessages((prev) => [...prev, assistantMessage]);
-          setConversationHistory((prev) => [
-            ...prev,
-            { role: "assistant", content: response.text || "" },
-          ]);
-        } else {
-          // User rejected
-          const rejectionMessage: Message = {
-            type: "assistant",
-            content:
-              "I understand. Let me know if there's another way I can help.",
-          };
-          setMessages((prev) => [...prev, rejectionMessage]);
-        }
-
-        // Cleanup callbacks
-        currentPendingCalls.forEach((call) =>
-          pendingCallbacks.delete(call.callId),
-        );
-      } catch (error) {
-        const errorMessage: Message = {
-          type: "error",
-          content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-        };
-        setMessages((prev) => [...prev, errorMessage]);
-
-        // Cleanup callbacks on error too
-        currentPendingCalls.forEach((call) =>
-          pendingCallbacks.delete(call.callId),
-        );
+  // Verbose logging helper
+  const log = useCallback(
+    (message: string) => {
+      if (verbose) {
+        const logMessage = `[${new Date().toLocaleTimeString()}] ${message}`;
+        setDebugLogs((prev) => [...prev, logMessage]);
       }
+    },
+    [verbose],
+  );
 
+  // Log app start
+  useEffect(() => {
+    log("Clementine app initialized");
+  }, []);
+
+  const {
+    messages,
+    conversationHistory,
+    addMessage,
+    addUserMessage,
+    addAssistantMessage,
+  } = useConversation(name);
+
+  const {
+    pendingToolCalls,
+    currentInputRef,
+    storePendingCallback,
+    addPendingToolCall,
+    handleApproval,
+  } = useToolApproval();
+
+  const onApprovalSuccess = useCallback(
+    (content: string) => {
+      log(`Tool approval succeeded, response: "${content}"`);
+      addAssistantMessage(content);
       setIsLoading(false);
     },
-    [], // No dependencies - we pass data as parameters
+    [addAssistantMessage],
   );
 
-  const handleSubmit = useCallback(
-    async () => {
-      if (
-        !currentInputRef.current.trim() ||
-        isLoadingRef.current ||
-        pendingToolCallsRef.current.length > 0
-      )
-        return;
+  const onApprovalError = useCallback(
+    (error: string) => {
+      log(`Tool approval failed: ${error}`);
+      addMessage(createErrorMessage(error));
+      setIsLoading(false);
+    },
+    [addMessage],
+  );
 
-      const userMessage: Message = {
-        type: "user",
-        content: currentInputRef.current.trim(),
-      };
+  const handleApprovalWrapper = useCallback(
+    (approve: boolean) => {
+      log(
+        `User ${approve ? "approved" : "rejected"} ${pendingToolCalls.length} tool call(s)`,
+      );
+      handleApproval(
+        approve,
+        pendingToolCalls,
+        conversationHistory,
+        agent,
+        onApprovalSuccess,
+        onApprovalError,
+      );
+    },
+    [
+      handleApproval,
+      pendingToolCalls,
+      conversationHistory,
+      onApprovalSuccess,
+      onApprovalError,
+    ],
+  );
 
-      setMessages((prev) => [...prev, userMessage]);
-      setConversationHistory((prev) => [
-        ...prev,
-        { role: "user", content: currentInputRef.current.trim() },
-      ]);
+  const [inputUtilities, setInputUtilities] = useState<{
+    getCurrentInput: () => string;
+    clearInput: () => void;
+  } | null>(null);
 
-      const currentInput = currentInputRef.current.trim();
-      setInput("");
-      setIsLoading(true);
+  const handleSubmit = useCallback(async () => {
+    if (!inputUtilities) return;
 
-      try {
-        const tools = await agent.getTools();
-        let toolCallsToApprove: PendingToolCall[] = [];
+    const currentInput = inputUtilities.getCurrentInput();
+    if (!currentInput || isLoading || pendingToolCalls.length > 0) return;
 
-        const response = await agent.generate(currentInput, {
-          context: conversationHistoryRef.current,
-          onStepFinish: async ({ toolCalls, text }) => {
-            if (toolCalls && toolCalls.length > 0) {
-              // For readFileTool, always require approval (for now)
-              for (const toolCall of toolCalls) {
-                if (toolCall.toolName === "readFileTool") {
-                  const callId = `${toolCall.toolName}-${Date.now()}-${Math.random()}`;
+    log(`User submitted: "${currentInput}"`);
+    addUserMessage(currentInput);
+    currentInputRef.current = currentInput;
+    inputUtilities.clearInput();
+    setIsLoading(true);
 
-                  // Store the tool execution function (capture toolCall in closure)
-                  pendingCallbacks.set(callId, async () => {
-                    const tool = tools[toolCall.toolName];
-                    return await tool.execute({
-                      context: toolCall.args,
-                      mastra,
-                    });
+    try {
+      log("Loading agent tools...");
+      const tools = await agent.getTools();
+      log(
+        `Loaded ${Object.keys(tools).length} tools: ${Object.keys(tools).join(", ")}`,
+      );
+      let toolCallsToApprove: PendingToolCall[] = [];
+
+      const response = await agent.generate(currentInput, {
+        context: conversationHistory,
+        onStepFinish: async ({ toolCalls }) => {
+          if (toolCalls && toolCalls.length > 0) {
+            log(
+              `Agent requested ${toolCalls.length} tool calls: ${toolCalls.map((tc) => tc.toolName).join(", ")}`,
+            );
+            for (const toolCall of toolCalls) {
+              if (toolCall.toolName === "readFileTool") {
+                log(
+                  `Requesting approval for tool: ${toolCall.toolName} with args: ${JSON.stringify(toolCall.args)}`,
+                );
+                const callId = `${toolCall.toolName}-${Date.now()}-${Math.random()}`;
+
+                storePendingCallback(callId, async () => {
+                  log(`Executing tool: ${toolCall.toolName}`);
+                  const tool = tools[toolCall.toolName as keyof typeof tools];
+                  const result = await tool.execute({
+                    context: toolCall.args,
+                    mastra,
+                    runtimeContext,
                   });
+                  log(`Tool ${toolCall.toolName} completed successfully`);
+                  return result;
+                });
 
-                  toolCallsToApprove.push({
-                    toolName: toolCall.toolName,
-                    args: toolCall.args,
-                    message: `Read file: ${toolCall.args.absolutePath}`,
-                    callId,
-                  });
-                }
-              }
+                const pendingCall: PendingToolCall = {
+                  toolName: toolCall.toolName,
+                  args: toolCall.args,
+                  message: `Read file: ${toolCall.args.absolutePath}`,
+                  callId,
+                };
 
-              if (toolCallsToApprove.length > 0) {
-                setPendingToolCalls(toolCallsToApprove);
-                return; // Don't continue - wait for approval
+                addPendingToolCall(pendingCall);
+                toolCallsToApprove.push(pendingCall);
               }
             }
-          },
-        });
 
-        // If no approval needed, show response directly
-        if (toolCallsToApprove.length === 0) {
-          const assistantMessage: Message = {
-            type: "assistant",
-            content:
-              response.text || "I'm sorry, I couldn't generate a response.",
-          };
+            if (toolCallsToApprove.length > 0) {
+              log(
+                `Waiting for user approval for ${toolCallsToApprove.length} tool calls`,
+              );
+              return; // Wait for approval
+            }
+          }
+        },
+      });
 
-          setMessages((prev) => [...prev, assistantMessage]);
-          setConversationHistory((prev) => [
-            ...prev,
-            { role: "assistant", content: response.text || "" },
-          ]);
-          setIsLoading(false);
-        }
-      } catch (error) {
-        const errorMessage: Message = {
-          type: "error",
-          content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-        };
-        setMessages((prev) => [...prev, errorMessage]);
+      if (toolCallsToApprove.length === 0) {
+        log(`Agent response received: "${response.text}"`);
+        addAssistantMessage(
+          response.text || "I'm sorry, I couldn't generate a response.",
+        );
         setIsLoading(false);
       }
-    },
-    [], // No dependencies - using refs
-  );
-
-  // Handle keyboard input
-  useInput((input, key) => {
-    if (pendingToolCalls.length > 0) {
-      if (key.return || input.toLowerCase() === "y") {
-        handleApproval(true, pendingToolCalls);
-      } else if (key.escape || input.toLowerCase() === "n") {
-        handleApproval(false, pendingToolCalls);
-      }
-      return;
+    } catch (error) {
+      log(
+        `Error during submission: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+      addMessage(createErrorMessage(error));
+      setIsLoading(false);
     }
+  }, [
+    inputUtilities,
+    isLoading,
+    pendingToolCalls.length,
+    addUserMessage,
+    conversationHistory,
+    storePendingCallback,
+    addPendingToolCall,
+    addAssistantMessage,
+    addMessage,
+  ]);
 
-    // Normal input handling
-    if (key.return) {
-      handleSubmit();
-    } else if (key.backspace || key.delete) {
-      setInput((prev) => prev.slice(0, -1));
-    } else if (key.ctrl && input.toLowerCase() === "c") {
-      process.exit(0);
-    } else if (input) {
-      setInput((prev) => prev + input);
-    }
+  const { input, clearInput, getCurrentInput } = useInputHandling({
+    onSubmit: handleSubmit,
+    onApproval: handleApprovalWrapper,
+    hasPendingToolCalls: pendingToolCalls.length > 0,
+    isLoading,
   });
 
-  // Enable raw mode
+  // Update utilities when they become available
   useEffect(() => {
-    if (stdin) {
-      setRawMode(true);
-    }
-    return () => {
-      if (stdin) {
-        setRawMode(false);
-      }
-    };
-  }, [stdin, setRawMode]);
+    setInputUtilities({ getCurrentInput, clearInput });
+  }, [getCurrentInput, clearInput]);
 
-  const getMessageColor = (type: Message["type"]) => {
-    switch (type) {
-      case "user":
-        return "blue";
-      case "assistant":
-        return "green";
-      case "error":
-        return "red";
-      default:
-        return "white";
-    }
-  };
-
-  const getMessagePrefix = (type: Message["type"]) => {
-    switch (type) {
-      case "user":
-        return "You:";
-      case "assistant":
-        return "Clementine:";
-      case "error":
-        return "❌ Error:";
-      default:
-        return "";
-    }
-  };
+  const hasPendingToolCalls = pendingToolCalls.length > 0;
 
   return (
     <Box flexDirection="column" padding={1}>
-      {/* Header */}
-      <Box marginBottom={1}>
-        <Text color="cyan" bold>
-          🍊 Clementine
-        </Text>
-      </Box>
-
-      {/* Messages */}
-      <Box flexDirection="column" marginBottom={1}>
-        {messages.map((message, index) => (
-          <Box key={index} marginBottom={1}>
-            <Box flexDirection="column">
-              <Text color={getMessageColor(message.type)} bold>
-                {getMessagePrefix(message.type)}
-              </Text>
-              <Text color={getMessageColor(message.type)}>
-                {message.content}
-              </Text>
-            </Box>
-          </Box>
-        ))}
-      </Box>
-
-      {/* Loading indicator */}
-      {isLoading && pendingToolCalls.length === 0 && (
-        <Box marginBottom={1}>
-          <Text color="yellow">🤔 Thinking...</Text>
-        </Box>
-      )}
-
-      {/* Approval request */}
-      {pendingToolCalls.length > 0 && (
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor="yellow"
-          padding={1}
-          marginBottom={1}
-        >
-          <Text color="yellow" bold>
-            🔐 Tool Execution Approval Required
-          </Text>
-
-          {/* List tools that need approval */}
-          <Box marginTop={1} marginBottom={1} flexDirection="column">
-            <Text color="cyan" bold>
-              Tools to execute:
-            </Text>
-            {pendingToolCalls.map((toolCall, index) => (
-              <Box key={index} marginLeft={2}>
-                <Text color="cyan">• {toolCall.message}</Text>
-              </Box>
-            ))}
-          </Box>
-
-          <Box>
-            <Text color="green">Press Y/Enter to approve, </Text>
-            <Text color="red">N/Esc to reject</Text>
-          </Box>
-        </Box>
-      )}
-
-      {/* Input area - only show if no approval request */}
-      {pendingToolCalls.length === 0 && (
-        <Box>
-          <Text color="gray">{"> "}</Text>
-          <Text>{input}</Text>
-          <Text color="gray">█</Text>
-        </Box>
-      )}
-
-      {/* Help text */}
-      <Box marginTop={1}>
-        <Text color="gray" dimColor>
-          {pendingToolCalls.length > 0
-            ? "Waiting for approval decision..."
-            : "Type your message and press Enter to send. Press Ctrl+C to exit."}
-        </Text>
-      </Box>
+      <Header />
+      <Messages messages={messages} />
+      <ApprovalRequest pendingToolCalls={pendingToolCalls} />
+      <InputArea
+        input={input}
+        isLoading={isLoading}
+        hasPendingToolCalls={hasPendingToolCalls}
+      />
+      <DebugPanel logs={debugLogs} visible={verbose} />
+      <HelpText hasPendingToolCalls={hasPendingToolCalls} />
     </Box>
   );
 };
