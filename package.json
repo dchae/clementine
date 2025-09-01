@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces && npm link --force",
-    "dev": "mastra dev",
+    "dev": "npx tsx --tsconfig packages/cli/tsconfig.json packages/cli/src/cli",
     "lint": "npm run lint --workspaces",
     "start": "mastra start"
   },
