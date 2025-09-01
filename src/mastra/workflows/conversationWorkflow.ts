@@ -2,7 +2,7 @@ import { createWorkflow, createStep } from "@mastra/core/workflows";
 import { z } from "zod";
 
 const conversationStep = createStep({
-  id: "conversation",
+  id: "conversationStep",
   description: "Handle user conversation with intelligent tool approval",
   inputSchema: z.object({
     userInput: z.string(),
@@ -17,38 +17,6 @@ const conversationStep = createStep({
   }),
   outputSchema: z.object({
     response: z.string(),
-    toolCalls: z
-      .array(
-        z.object({
-          toolName: z.string(),
-          args: z.string().array(),
-        }),
-      )
-      .optional(),
-    toolResults: z.array(z.any()).optional(),
-  }),
-  suspendSchema: z.object({
-    toolCalls: z.array(
-      z.object({
-        toolName: z.string(),
-        args: z.any(),
-      }),
-    ),
-    partialResponse: z.string().optional(),
-    context: z.object({
-      userInput: z.string(),
-      conversationHistory: z
-        .array(
-          z.object({
-            role: z.enum(["user", "assistant"]),
-            content: z.string(),
-          }),
-        )
-        .optional(),
-    }),
-  }),
-  resumeSchema: z.object({
-    approved: z.boolean(),
   }),
   execute: async ({ inputData, mastra }) => {
     const { userInput, conversationHistory = [] } = inputData;
@@ -75,7 +43,7 @@ const conversationStep = createStep({
 });
 
 export const conversationWorkflow = createWorkflow({
-  id: "conversation-workflow",
+  id: "conversationWorkflow",
   description: "Conversation workflow",
   inputSchema: z.object({
     userInput: z.string(),
@@ -90,15 +58,6 @@ export const conversationWorkflow = createWorkflow({
   }),
   outputSchema: z.object({
     response: z.string(),
-    toolCalls: z
-      .array(
-        z.object({
-          toolName: z.string(),
-          args: z.any(),
-        }),
-      )
-      .optional(),
-    toolResults: z.array(z.any()).optional(),
   }),
 })
   .then(conversationStep)

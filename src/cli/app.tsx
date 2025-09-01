@@ -57,57 +57,13 @@ const App = ({ name = "User" }: AppProps) => {
         let result;
 
         if (approve) {
-          // Execute all approved tools
-          const approvedTools = [];
-
-          for (const toolCall of approvalRequest.toolCalls) {
-            const { toolName, args } = toolCall;
-
-            if (tools[toolName]) {
-              try {
-                const toolResult = await tools[toolName].execute({
-                  context: args,
-                });
-                approvedTools.push({ toolName, result: toolResult });
-              } catch (error) {
-                const errorMsg = `Tool ${toolName} execution failed: ${error instanceof Error ? error.message : "Unknown error"}`;
-                const errorMessage: Message = {
-                  type: "error",
-                  content: errorMsg,
-                };
-
-                setMessages((prev) => [...prev, errorMessage]);
-                setApprovalRequest(null);
-                setCurrentRun(null);
-                setIsLoading(false);
-                return;
-              }
-            } else {
-              const errorMessage: Message = {
-                type: "error",
-                content: `Tool ${toolName} not found`,
-              };
-
-              setMessages((prev) => [...prev, errorMessage]);
-              setApprovalRequest(null);
-              setCurrentRun(null);
-              setIsLoading(false);
-              return;
-            }
-          }
-
-          // Resume with approval and tool results
           result = await currentRun.resume({
-            step: "conversation", // Specify which step to resume
-            resumeData: {
-              approved: true,
-              approvedTools,
-            },
+            step: "parse-approval-response",
+            resumeData: { approved: true },
           });
         } else {
-          // Resume with rejection
           result = await currentRun.resume({
-            step: "conversation", // Specify which step to resume
+            step: "parse-approval-response",
             resumeData: { approved: false },
           });
         }
@@ -171,7 +127,7 @@ const App = ({ name = "User" }: AppProps) => {
 
     try {
       // Get the conversation workflow
-      const workflow = mastra.getWorkflow("conversation-workflow");
+      const workflow = mastra.getWorkflow("conversationWorkflow");
       const run = await workflow.createRunAsync();
       setCurrentRun(run);
 
@@ -185,6 +141,7 @@ const App = ({ name = "User" }: AppProps) => {
 
       if (result.status === "suspended") {
         // Extract approval details from suspension
+        console.log(result);
         const suspendedStep = result.steps?.conversation;
         if (suspendedStep?.suspendPayload) {
           const { toolCalls, partialResponse, context } =
